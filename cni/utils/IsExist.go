@@ -1,8 +1,17 @@
 package utils
 
-func IsExistString(x string, y []string) bool {
-	for i :=0; i < len(y); i++ {
-		if y[i] == x {
+func IsExistString(str string, strSlice []string) bool {
+	for i := 0; i < len(strSlice); i++ {
+		if strSlice[i] == str {
+			return true
+		}
+	}
+	return false
+}
+
+func IsExistByte(byte byte, byteSlice []byte) bool {
+	for i := 0; i < len(byteSlice); i++ {
+		if byteSlice[i] == byte {
 			return true
 		}
 	}

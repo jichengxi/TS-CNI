@@ -267,13 +267,13 @@ func createMacvlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Inter
 func cmdAdd(args *skel.CmdArgs) error {
 	log.Println("args的值:", *args)
 	/*
-	args的值:
-	{f6cc28cab0c4e08923c5a9942f3e22a1b558f26ae4fb6f6bc1b73d48577a03d7
-	/proc/25981/ns/net
-	eth0
-	IgnoreUnknown=1;K8S_POD_NAMESPACE=default;K8S_POD_NAME=nginx-test-7ff7b6476d-rnbbs;K8S_POD_INFRA_CONTAINER_ID=f6cc28cab0c4e08923c5a9942f3e22a1b558f26ae4fb6f6bc1b73d48577a03d7
-	/opt/cni/bin
-	[....]}
+		args的值:
+		{f6cc28cab0c4e08923c5a9942f3e22a1b558f26ae4fb6f6bc1b73d48577a03d7
+		/proc/25981/ns/net
+		eth0
+		IgnoreUnknown=1;K8S_POD_NAMESPACE=default;K8S_POD_NAME=nginx-test-7ff7b6476d-rnbbs;K8S_POD_INFRA_CONTAINER_ID=f6cc28cab0c4e08923c5a9942f3e22a1b558f26ae4fb6f6bc1b73d48577a03d7
+		/opt/cni/bin
+		[....]}
 	*/
 	n, cniVersion, err := loadConf(args.StdinData, args.Args)
 	if err != nil {
@@ -290,6 +290,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	//netns的值: &{0xc00000e160 false}
 	defer netns.Close()
 
+	// {eth0 0e:69:d6:07:a9:33 /proc/25981/ns/net}
 	macvlanInterface, err := createMacvlan(n, args.IfName, netns)
 	if err != nil {
 		return err
@@ -329,6 +330,12 @@ func cmdAdd(args *skel.CmdArgs) error {
 		log.Println("ipamResult的值:", *ipamResult)
 		// ipamResult的值: {0.4.0 [] [{Version:4 Interface:<nil> Address:{IP:192.168.165.22 Mask:ffffff00} Gateway:192.168.165.2}]
 		//[{Dst:{IP:0.0.0.0 Mask:00000000} GW:<nil>}] {[]  [] []}}
+		// CNIVersion 0.4.0
+		// Interfaces []
+		// IPs [{Version:4 Interface:<nil> Address:{IP:192.168.165.22 Mask:ffffff00} Gateway:192.168.165.2}]
+		// Routes [{Dst:{IP:0.0.0.0 Mask:00000000} GW:<nil>}]
+		// DNS {[]  [] []}}
+
 		if err != nil {
 			return err
 		}

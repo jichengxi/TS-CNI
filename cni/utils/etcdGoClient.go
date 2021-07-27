@@ -21,8 +21,8 @@ type EtcdGetValue struct {
 // EtcdConnect etcd建立连接
 func (c *Client) EtcdConnect() {
 	config := clientv3.Config{
-		//Endpoints:   []string{"192.168.1.25:2379"},
-		Endpoints:   []string{"172.17.47.201:2379"},
+		Endpoints: []string{"192.168.1.25:2379"},
+		//Endpoints:   []string{"172.17.47.201:2379"},
 		DialTimeout: 5 * time.Second,
 	}
 	cli, err := clientv3.New(config)
@@ -50,6 +50,10 @@ func (c *Client) EtcdGet(k string, isDir bool) interface{} {
 	if isDir {
 		// 这个条件说明需要查询目录
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		// 判断是不是/结尾的，如果不是，就给他加上
+		if []byte(k)[len([]byte(k))-1] != 47 {
+			k = k + "/"
+		}
 		getRes, err := c.cli.Get(ctx, k, clientv3.WithKeysOnly(), clientv3.WithPrefix())
 		cancel()
 		if err != nil {
@@ -58,8 +62,12 @@ func (c *Client) EtcdGet(k string, isDir bool) interface{} {
 		}
 		var dirSlice []string
 		for _, ev := range getRes.Kvs {
-			tmpStr := strings.Split(strings.TrimSpace(string(ev.Key)), k)
-			dirSlice = append(dirSlice, tmpStr[len(tmpStr) -1])
+			tmpStrSlice := strings.Split(strings.TrimSpace(string(ev.Key)), k)
+			tmpStr := tmpStrSlice[len(tmpStrSlice)-1]
+			tmpByte := []byte(tmpStr)
+			if !IsExistByte(byte(47), tmpByte) {
+				dirSlice = append(dirSlice, tmpStr)
+			}
 		}
 		return dirSlice
 	} else {
@@ -91,6 +99,6 @@ func (c *Client) EtcdDel(k string) {
 }
 
 // EtcdDisconnect 关闭连接
-func (c *Client)EtcdDisconnect() {
+func (c *Client) EtcdDisconnect() {
 	c.cli.Close()
 }

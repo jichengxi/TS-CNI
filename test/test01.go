@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"ts-cni/cni2/utils"
+	"ts-cni/cni/utils"
 )
 
 func main() {
