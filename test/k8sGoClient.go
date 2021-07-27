@@ -20,8 +20,9 @@ func homeDir() string {
 
 func main() {
 	var kubeConfig *string
+	currentDir, _ := os.Getwd()
 	if home := homeDir(); home != "" {
-		kubeConfig = flag.String("kubeConfig", filepath.Join("F:\\GitHub\\", "ts-cni", "config"), "(optional) absolute path to the kubeConfig file")
+		kubeConfig = flag.String("kubeConfig", filepath.Join(currentDir, "..\\", "config"), "(optional) absolute path to the kubeConfig file")
 	} else {
 		kubeConfig = flag.String("kubeConfig", "", "absolute path to the kubeConfig file")
 	}
@@ -38,12 +39,26 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-
-	pods, err := clientSet.CoreV1().Pods("default").List(context.TODO(), metaV1.ListOptions{})
+	// List(context.TODO(), metaV1.ListOptions{})
+	pods, err := clientSet.CoreV1().Pods("default").Get(context.TODO(), "nginx-test-847b659596-c7dgj", metaV1.GetOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Println(pods.Items[0].Spec)
+
+	if pods.OwnerReferences[0].Kind == "ReplicaSet" {
+		repSet, err := clientSet.AppsV1().ReplicaSets("default").Get(context.TODO(), pods.OwnerReferences[0].Name, metaV1.GetOptions{})
+		if err != nil {
+			panic(err.Error())
+		}
+		fmt.Println(repSet.OwnerReferences[0].Kind)
+		fmt.Println(repSet.OwnerReferences[0].Name)
+	} else if pods.OwnerReferences[0].Kind == "StatefulSet" {
+		repSet, err := clientSet.AppsV1().StatefulSets("default").Get(context.TODO(), pods.OwnerReferences[0].Name, metaV1.GetOptions{})
+		if err != nil {
+			panic(err.Error())
+		}
+		fmt.Println(repSet.OwnerReferences[0].Name)
+	}
 	//fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
 
 	// Examples for error handling:

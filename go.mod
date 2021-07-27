@@ -8,6 +8,7 @@ require (
 	github.com/j-keck/arping v0.0.0-20160618110441-2cf9dc699c56
 	github.com/vishvananda/netlink v1.1.1-0.20201029203352-d40f9887b852
 	go.etcd.io/etcd v0.5.0-alpha.5.0.20200910180754-dd1b699fc489
+	k8s.io/apimachinery v0.21.3
 	k8s.io/client-go v0.21.3
 )
 

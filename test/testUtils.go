@@ -8,11 +8,9 @@ import (
 func main() {
 	a := utils.Client{}
 	a.EtcdConnect()
-	//a.EtcdPut("/test01", "1234")
-	//a.EtcdPut("/test01/test01", "test123")
-	//a.EtcdPut("/test01/test02", "test123")
-	t1 := a.EtcdGet("/test01/", true)
-	t2 := a.EtcdGet("/test01/test01", false)
+	t1 := a.EtcdGet("/ipam/", true)
+	//t2 := a.EtcdGet("/test01/test01", false)
+	a.EtcdDisconnect()
 	fmt.Println(t1)
-	fmt.Println(t2)
+	//fmt.Println(t2)
 }
