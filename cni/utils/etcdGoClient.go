@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go.etcd.io/etcd/clientv3"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,8 +30,8 @@ type Client struct {
 // EtcdConnect etcd建立连接
 func (c *Client) EtcdConnect() {
 	config := clientv3.Config{
-		//Endpoints: []string{"192.168.1.25:2379"},
-		Endpoints:   []string{"172.17.47.201:2379"},
+		Endpoints: []string{"192.168.1.25:2379"},
+		//Endpoints:   []string{"172.17.47.201:2379"},
 		DialTimeout: 5 * time.Second,
 	}
 	cli, err := clientv3.New(config)
@@ -108,7 +109,10 @@ func (c *Client) EtcdDel(k string) {
 
 // EtcdDisconnect 关闭连接
 func (c *Client) EtcdDisconnect() {
-	c.cli.Close()
+	err := c.cli.Close()
+	if err != nil {
+		return
+	}
 }
 
 // InitLock 初始化锁
@@ -129,40 +133,71 @@ func (c *Client) InitLock() error {
 			select {
 			case keepRes = <-KeepResChan:
 				//如果续约失败
-				if keepRes == nil {
-					goto END
+				if keepRes != nil {
+					log.Println("续租成功,leaseID :", keepRes.ID)
+				} else {
+					log.Println("续租失败")
 				}
 			}
 			time.Sleep(1 * time.Second)
 		}
-	END:
 	}()
 	return err
 }
 
-// Lock 获取锁
-func (c *Client) Lock(key string) (clientv3.LeaseID, error) {
+// Lock 创建锁
+func (c *Client) Lock(key string) (string, error) {
+	// 初始化锁，一般用于创建前
 	err := c.InitLock()
 	if err != nil {
-		return -1, err
+		return "", err
 	}
-	//LOCK:
 	txn := c.Kv.Txn(context.TODO())
+	// 判断锁是否存在
 	txn.If(clientv3.Compare(clientv3.CreateRevision(key), "=", 0)).
-		Then(clientv3.OpPut(key, "", clientv3.WithLease(c.LeaseId))).
+		Then(clientv3.OpPut(key, strconv.FormatInt(int64(c.LeaseId), 10), clientv3.WithLease(c.LeaseId))).
 		Else()
 	txnResp, err := txn.Commit()
 	if err != nil {
-		return -1, err
+		return "", err
 	}
+	// 判断锁是否存在
 	if !txnResp.Succeeded { //判断txn.if条件是否成立
-		return -1, fmt.Errorf("抢锁失败")
+		return "", fmt.Errorf("抢锁失败")
 	}
-	return c.LeaseId, nil
+	// 把锁id转成字符串
+	leaseIdStr := strconv.FormatInt(int64(c.LeaseId), 10)
+	return leaseIdStr, nil
 }
 
-func (c *Client) UnLock(leaseId clientv3.LeaseID) {
+// UnLock 通过锁的字符串删除锁
+func (c *Client) UnLock(leaseIdStr string) {
+	leaseId := c.SearchLocks(leaseIdStr)
 	c.CancelFunc()
-	c.Lease.Revoke(context.TODO(), c.LeaseId)
-	log.Println("释放了锁")
+	revoke, err := c.Lease.Revoke(context.TODO(), leaseId)
+	if err != nil {
+		log.Printf("获取%v锁出错, %v", leaseIdStr, err)
+	}
+	log.Println("清除锁成功，返回值=", revoke)
+}
+
+// SearchLocks 通过锁字符串查询出具体锁的id
+func (c *Client) SearchLocks(leaseIdStr string) clientv3.LeaseID {
+	leases, err := c.cli.Leases(context.TODO())
+	errId := clientv3.LeaseID(-000000000000)
+	if err != nil {
+		log.Println("获取所有锁出错,", err)
+		return errId
+	}
+	if leases != nil {
+		for _, i := range leases.Leases {
+			if leaseIdStr == strconv.FormatInt(int64(i.ID), 10) {
+				return i.ID
+			}
+		}
+	} else {
+		log.Println("没有锁了")
+		return errId
+	}
+	return errId
 }

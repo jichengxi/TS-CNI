@@ -327,10 +327,12 @@ func cmdAdd(args *skel.CmdArgs) error {
 		//	return fmt.Errorf("IPAM的Type不存在! 值=%v", n.IPAM.Type)
 		//}
 	*/
+
 	resIp, resGw := ipam.ResIp(n.NetInfo)
 	result.IPs[0].Address.IP = []byte(resIp)
 	result.IPs[0].Address.Mask = []byte("ffffff00")
 	result.IPs[0].Gateway = []byte(resGw)
+
 	return types.PrintResult(result, cniVersion)
 }
 
