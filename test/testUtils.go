@@ -11,7 +11,7 @@ type N struct {
 
 func main() {
 	K8sClient := utils.NewK8s()
-	netArr := K8sClient.GetPodNet("default", "nginx-test-7ff7b6476d-jbfqc")
+	netArr := K8sClient.GetPodNet("default", "nginx-test-847b659596-cfzcl")
 	etcdClient := utils.Client{}
 	etcdClient.EtcdConnect()
 	// 取etcd中存储的所有的网段

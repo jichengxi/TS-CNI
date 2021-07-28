@@ -15,6 +15,8 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"ts-cni/cni/ipam"
+	"ts-cni/cni/structs"
 	"ts-cni/cni/utils"
 )
 
@@ -32,6 +34,7 @@ type NetConf struct {
 	MTU     int    `json:"mtu"`
 	Mac     string `json:"mac,omitempty"`
 	EnvArgs EnvArgs
+	NetInfo structs.NetInfo
 }
 
 //const (
@@ -139,6 +142,8 @@ func loadConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 			if len(usedIpList) < 240 {
 				netVlanId := etcdClient.EtcdGet(etcdRootDir+"/"+v, false).([]utils.EtcdGetValue)[0].V
 				n.Master = n.Master + "." + netVlanId
+				n.NetInfo.AppNet = v
+				n.NetInfo.UseIpList = usedIpList
 				break
 			} else if i == len(usedIpList)-1 {
 				return nil, "", fmt.Errorf("%v 的Annotations里的app_net地址池不够了! \n")
@@ -246,6 +251,7 @@ func createMacvlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Inter
 		return nil, err
 	}
 
+	// {eth0 0e:69:d6:07:a9:33 /proc/25981/ns/net}
 	return macvlan, nil
 }
 
@@ -284,15 +290,56 @@ func cmdAdd(args *skel.CmdArgs) error {
 		Interfaces: []*current.Interface{macvlanInterface},
 	}
 
-	isLayer3 := n.IPAM.Type != ""
-
-	if isLayer3 {
-
-	} else {
-		return fmt.Errorf("IPAM的Type不存在! 值=%v", n.IPAM.Type)
-	}
-
+	// 先不管他 太烦了
+	/*
+		//isLayer3 := n.IPAM.Type != ""
+		//if isLayer3 {
+		//	// run the IPAM plugin and get back the config to apply
+		//	r, err := ipam.ExecAdd(n.IPAM.Type, args.StdinData)
+		//	log.Println("r的值:", r)
+		//	// r的值: &{0.3.1 [] [{Version:4 Interface:<nil> Address:{IP:192.168.165.22 Mask:ffffff00} Gateway:192.168.165.2}]
+		//	//[{Dst:{IP:0.0.0.0 Mask:00000000} GW:<nil>}] {[]  [] []}}
+		//	if err != nil {
+		//		return err
+		//	}
+		//
+		//	// Invoke ipam del if err to avoid ip leak
+		//	defer func() {
+		//		if err != nil {
+		//			ipam.ExecDel(n.IPAM.Type, args.StdinData)
+		//		}
+		//	}()
+		//
+		//	// Convert whatever the IPAM result was into the current Result type
+		//	ipamResult, err := current.NewResultFromResult(r)
+		//	log.Println("ipamResult的值:", *ipamResult)
+		//	// ipamResult的值: {0.4.0 [] [{Version:4 Interface:<nil> Address:{IP:192.168.165.22 Mask:ffffff00} Gateway:192.168.165.2}]
+		//	//[{Dst:{IP:0.0.0.0 Mask:00000000} GW:<nil>}] {[]  [] []}}
+		//	// CNIVersion 0.4.0
+		//	// Interfaces []
+		//	// IPs [{Version:4 Interface:<nil> Address:{IP:192.168.165.22 Mask:ffffff00} Gateway:192.168.165.2}]
+		//	// Routes [{Dst:{IP:0.0.0.0 Mask:00000000} GW:<nil>}]
+		//	// DNS {[]  [] []}}
+		//
+		//
+		//
+		//} else {
+		//	return fmt.Errorf("IPAM的Type不存在! 值=%v", n.IPAM.Type)
+		//}
+	*/
+	resIp, resGw := ipam.ResIp(n.NetInfo)
+	result.IPs[0].Address.IP = []byte(resIp)
+	result.IPs[0].Address.Mask = []byte("ffffff00")
+	result.IPs[0].Gateway = []byte(resGw)
 	return types.PrintResult(result, cniVersion)
+}
+
+func cmdCheck(args *skel.CmdArgs) error {
+	return nil
+}
+
+func cmdDel(args *skel.CmdArgs) error {
+	return nil
 }
 
 func main() {

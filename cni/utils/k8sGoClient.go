@@ -30,8 +30,8 @@ func newK8sClient() *kubernetes.Clientset {
 	var kubeConfig *string
 	currentDir, _ := os.Getwd()
 	// 取k8s config配置文件的路径
-	kubeConfig = flag.String("kubeConfig", filepath.Join(currentDir, "..\\", "config-home"), "k8s配置文件所在位置")
-	//kubeConfig = flag.String("kubeConfig", filepath.Join(currentDir, "..\\", "config-36-211"), "k8s配置文件所在位置")
+	//kubeConfig = flag.String("kubeConfig", filepath.Join(currentDir, "..\\", "config-home"), "k8s配置文件所在位置")
+	kubeConfig = flag.String("kubeConfig", filepath.Join(currentDir, "..\\", "config-36-211"), "k8s配置文件所在位置")
 	//fmt.Println(kubeConfig)
 	flag.Parse()
 	// use the current context in kubeConfig

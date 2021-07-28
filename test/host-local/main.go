@@ -28,14 +28,11 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	//current "github.com/containernetworking/cni/pkg/types/100"
+	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/cni/pkg/version"
 )
 
-func main() {
-	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("host-local"))
-}
-
+// parseResolvConf parses an existing resolv.conf in to a DNS struct
 func parseResolvConf(filename string) (*types.DNS, error) {
 	fp, err := os.Open(filename)
 	if err != nil {
@@ -76,6 +73,10 @@ func parseResolvConf(filename string) (*types.DNS, error) {
 	return &dns, nil
 }
 
+func main() {
+	skel.PluginMain(cmdAdd, cmdCheck, cmdDel, version.All, bv.BuildString("host-local"))
+}
+
 func cmdCheck(args *skel.CmdArgs) error {
 
 	ipamConf, _, err := allocator.LoadIPAMConfig(args.StdinData, args.Args)
@@ -100,20 +101,28 @@ func cmdCheck(args *skel.CmdArgs) error {
 }
 
 func cmdAdd(args *skel.CmdArgs) error {
+	log.Println("args的值=", *args)
+	//	ContainerID e2e296b3ef03ce531592cafcdc2bfb4e017622419b3dfc60ab64c7b27b9fffb5
+	//	Netns       /proc/10513/ns/net
+	//	IfName      eth0
+	//	Args        IgnoreUnknown=1;K8S_POD_NAMESPACE=default;K8S_POD_NAME=nginx-test-7ff7b6476d-4stpg;K8S_POD_INFRA_CONTAINER_ID=e2e296b3ef03ce531592cafcdc2bfb4e017622419b3dfc60ab64c7b27b9fffb5
+	//  Path        /opt/cni/bin
+	//  StdinData   {"cniVersion":"0.3.1","ipMasq":false,"ipam":{"gateway":"192.168.165.2","rangeEnd":"192.168.165.29","rangeStart":"192.168.165.21","routes":[{"dst":"0.0.0.0/0"}],"subnet":"192.168.165.0/24","type":"my-host-local"},"isGateway":true,"master":"enp0s3","mode":"bridge","name":"macvlannet","type":"mymacvlan-2"}
+
 	ipamConf, confVersion, err := allocator.LoadIPAMConfig(args.StdinData, args.Args)
 	if err != nil {
 		return err
 	}
 	log.Println("ipamConf的值=", ipamConf)
-	log.Println("confVersion的值=", confVersion)
 
-	result := &current.Result{CNIVersion: current.ImplementedSpecVersion}
+	result := &current.Result{}
 
 	if ipamConf.ResolvConf != "" {
 		dns, err := parseResolvConf(ipamConf.ResolvConf)
 		if err != nil {
 			return err
 		}
+		log.Println("dns值=", dns)
 		result.DNS = *dns
 	}
 
@@ -121,6 +130,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
+	log.Println("store的值=", store)
 	defer store.Close()
 
 	// Keep the allocators we used, so we can release all IPs if an error
@@ -134,6 +144,8 @@ func cmdAdd(args *skel.CmdArgs) error {
 	for _, ip := range ipamConf.IPArgs {
 		requestedIPs[ip.String()] = ip
 	}
+	log.Println("ipamConf.IPArgs=", ipamConf.IPArgs)
+	log.Println("requestedIPs=", requestedIPs)
 
 	for idx, rangeset := range ipamConf.Ranges {
 		allocator := allocator.NewIPAllocator(&rangeset, store, idx)
@@ -175,10 +187,9 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	result.Routes = ipamConf.Routes
-	log.Println("result的值=", *result)
-	// result的值=
-	//{1.0.0 []
-	//[ {Interface:<nil> Address:{IP:192.168.165.22 Mask:ffffff00} Gateway:192.168.165.2}] [{Dst:{IP:0.0.0.0 Mask:00000000} GW:<nil>}] {[]  [] []}}
+	log.Println("ipam中 result=", *result)
+	//{ [] [{Version:4 Interface:<nil> Address:{IP:192.168.165.29 Mask:ffffff00} Gateway:192.168.165.2}] [{Dst:{IP:0.0.0.0 Mask:00000000} GW:<nil>}] {[]  [] []}}
+	log.Println("ipam中 confVersion=", confVersion)
 	return types.PrintResult(result, confVersion)
 }
 

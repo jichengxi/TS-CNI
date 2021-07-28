@@ -2,23 +2,25 @@ package main
 
 import (
 	"fmt"
+	"time"
 	"ts-cni/cni/utils"
 )
 
 func main() {
-	c := "172.17.11.0"
-	//var b []string
-	//b = strings.Split(strings.TrimSpace(a),"/ipam/")
-	//fmt.Println(b[len(b)-1])
 	a := utils.Client{}
 	a.EtcdConnect()
-	//b := a.EtcdGet("/ipam/", true)
-	str := a.EtcdGet("/ipam/"+c, false)
+	go func() {
+		lock, err := a.Lock("/172.11.11.11")
+		if err != nil {
+			fmt.Println("groutine1抢锁失败")
+			fmt.Println(err)
+			return
+		}
+		fmt.Println("groutine1抢锁成功")
+		fmt.Println("lease id", lock)
+		time.Sleep(10 * time.Second)
+	}()
 	a.EtcdDisconnect()
-	//if utils.IsExistString(c, b.([]string)) {
-	//	str := a.EtcdGet("/ipam/"+c, false)
-	//	fmt.Println(str)
-	//}
-	fmt.Println(str)
-	//fmt.Println("/ipam/"+c)
+	//a.UnLock(lock)
+
 }
