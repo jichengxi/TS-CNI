@@ -15,8 +15,8 @@ type EtcdGetValue struct {
 	V string
 }
 
-// Client 分布式锁(TXN事务)
-type Client struct {
+// EtcdClient 分布式锁(TXN事务)
+type EtcdClient struct {
 	// etcd客户端
 	cli        clientv3.Client
 	Kv         clientv3.KV
@@ -28,10 +28,10 @@ type Client struct {
 }
 
 // EtcdConnect etcd建立连接
-func (c *Client) EtcdConnect() {
+func (c *EtcdClient) EtcdConnect() {
 	config := clientv3.Config{
-		Endpoints: []string{"192.168.1.25:2379"},
-		//Endpoints:   []string{"172.17.47.201:2379"},
+		//Endpoints: []string{"192.168.1.25:2379"},
+		Endpoints:   []string{"172.17.47.201:2379"},
 		DialTimeout: 5 * time.Second,
 	}
 	cli, err := clientv3.New(config)
@@ -43,7 +43,7 @@ func (c *Client) EtcdConnect() {
 }
 
 // EtcdPut 创建和更新键值
-func (c *Client) EtcdPut(k string, v string) {
+func (c *EtcdClient) EtcdPut(k string, v string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	putRes, err := c.cli.Put(ctx, k, v, clientv3.WithPrevKV())
 	cancel()
@@ -55,7 +55,7 @@ func (c *Client) EtcdPut(k string, v string) {
 }
 
 // EtcdGet 通过isDir来控制get目录还是get具体的值
-func (c *Client) EtcdGet(k string, isDir bool) interface{} {
+func (c *EtcdClient) EtcdGet(k string, isDir bool) interface{} {
 	if isDir {
 		// 这个条件说明需要查询目录
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -97,7 +97,7 @@ func (c *Client) EtcdGet(k string, isDir bool) interface{} {
 }
 
 // EtcdDel 删除一个键
-func (c *Client) EtcdDel(k string) {
+func (c *EtcdClient) EtcdDel(k string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	delResp, err := c.cli.Delete(ctx, k)
 	cancel()
@@ -108,7 +108,7 @@ func (c *Client) EtcdDel(k string) {
 }
 
 // EtcdDisconnect 关闭连接
-func (c *Client) EtcdDisconnect() {
+func (c *EtcdClient) EtcdDisconnect() {
 	err := c.cli.Close()
 	if err != nil {
 		return
@@ -116,7 +116,7 @@ func (c *Client) EtcdDisconnect() {
 }
 
 // InitLock 初始化锁
-func (c *Client) InitLock() error {
+func (c *EtcdClient) InitLock() error {
 	var ctx context.Context
 	c.Kv = clientv3.NewKV(&c.cli)
 	c.Lease = clientv3.NewLease(&c.cli)
@@ -126,6 +126,7 @@ func (c *Client) InitLock() error {
 	}
 	ctx, c.CancelFunc = context.WithCancel(context.TODO())
 	c.LeaseId = leaseResp.ID
+	log.Println("锁内存地址:", &c.LeaseId)
 	KeepResChan, err := c.Lease.KeepAlive(ctx, c.LeaseId)
 	go func() {
 		var keepRes *clientv3.LeaseKeepAliveResponse
@@ -135,8 +136,11 @@ func (c *Client) InitLock() error {
 				//如果续约失败
 				if keepRes != nil {
 					log.Println("续租成功,leaseID :", keepRes.ID)
+					log.Println("锁内存地址:", &keepRes.ID)
 				} else {
 					log.Println("续租失败")
+					c.CancelFunc()
+					return
 				}
 			}
 			time.Sleep(1 * time.Second)
@@ -146,11 +150,11 @@ func (c *Client) InitLock() error {
 }
 
 // Lock 创建锁
-func (c *Client) Lock(key string) (string, error) {
+func (c *EtcdClient) Lock(key string) error {
 	// 初始化锁，一般用于创建前
 	err := c.InitLock()
 	if err != nil {
-		return "", err
+		return err
 	}
 	txn := c.Kv.Txn(context.TODO())
 	// 判断锁是否存在
@@ -159,39 +163,41 @@ func (c *Client) Lock(key string) (string, error) {
 		Else()
 	txnResp, err := txn.Commit()
 	if err != nil {
-		return "", err
+		return err
 	}
 	// 判断锁是否存在
 	if !txnResp.Succeeded { //判断txn.if条件是否成立
-		return "", fmt.Errorf("抢锁失败")
+		return fmt.Errorf("抢锁失败")
 	}
-	// 把锁id转成字符串
-	leaseIdStr := strconv.FormatInt(int64(c.LeaseId), 10)
-	return leaseIdStr, nil
+	return nil
 }
 
 // UnLock 通过锁的字符串删除锁
-func (c *Client) UnLock(leaseIdStr string) {
+func (c *EtcdClient) UnLock(leaseIdStr string) error {
 	leaseId := c.SearchLocks(leaseIdStr)
-	c.CancelFunc()
-	revoke, err := c.Lease.Revoke(context.TODO(), leaseId)
+	revoke, err := c.cli.Revoke(context.TODO(), leaseId)
 	if err != nil {
 		log.Printf("获取%v锁出错, %v", leaseIdStr, err)
+		return err
 	}
-	log.Println("清除锁成功，返回值=", revoke)
+	log.Println("清除锁成功，返回值=", revoke.Header)
+	return nil
 }
 
 // SearchLocks 通过锁字符串查询出具体锁的id
-func (c *Client) SearchLocks(leaseIdStr string) clientv3.LeaseID {
+func (c *EtcdClient) SearchLocks(leaseIdStr string) clientv3.LeaseID {
 	leases, err := c.cli.Leases(context.TODO())
 	errId := clientv3.LeaseID(-000000000000)
 	if err != nil {
 		log.Println("获取所有锁出错,", err)
 		return errId
 	}
+	log.Println(leases.Leases)
 	if leases != nil {
 		for _, i := range leases.Leases {
 			if leaseIdStr == strconv.FormatInt(int64(i.ID), 10) {
+				log.Println("锁内存地址:", &i.ID)
+				log.Println("i=", i.ID)
 				return i.ID
 			}
 		}

@@ -85,3 +85,11 @@ func (k *K8s) GetPodNet(NameSpace string, PodName string) []string {
 		return nil
 	}
 }
+
+func (k *K8s) GetPodIp(NameSpace string, PodName string) string {
+	pods, err := k.client.CoreV1().Pods(NameSpace).Get(context.TODO(), PodName, metaV1.GetOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	return pods.Status.PodIP
+}

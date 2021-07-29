@@ -15,7 +15,6 @@ import (
 	"log"
 	"net"
 	"runtime"
-	"ts-cni/cni/ipam"
 	"ts-cni/cni/structs"
 	"ts-cni/cni/utils"
 )
@@ -125,37 +124,45 @@ func loadConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 	K8sClient := utils.NewK8s()
 	// 根据n.EnvArgs中当前创建pod的namespace和name，查出对应上层控制器中定义的app_net切片
 	netArr := K8sClient.GetPodNet(n.EnvArgs.K8sPodNamespace, n.EnvArgs.K8sPodName)
+	ipInfo := utils.EtcdCmdAdd(netArr)
+	n.Master = n.Master + "." + ipInfo.VlanId
+	n.NetInfo.AppNet = ipInfo.AppNet
+	n.NetInfo.UseIpList = ipInfo.UseIpList
+	n.NetInfo.IPAddress = ipInfo.IPAddress
+	n.NetInfo.GateWay = ipInfo.GateWay
+	log.Println("IP分配信息：", n.Master, n.NetInfo)
+
 	// 建立etcd连接
-	etcdClient := utils.Client{}
-	etcdClient.EtcdConnect()
+	//etcdClient := utils.EtcdClient{}
+	//etcdClient.EtcdConnect()
 	// 取etcd中存储的所有的网段
 	// 根据Annotations中的app_net
 	// 第一步 查询app_net是否在etcd所有网段中存在
 	// 第二步 如果存在判断app_net的整个网段的IP在etcd中是否超过了240个(11-250)
 	// 第三步 如果超过了，就取app_net中下一个网段，如果没有下一个网段，报地址池IP不够
 	// 第四步 如果没超过240个，就在etcd中取当前网段的vlanID，并且拼接到master上
-	var etcdRootDir = "/ipam"
-	netList := etcdClient.EtcdGet(etcdRootDir, true).([]string)
-	for i, v := range netArr {
-		if utils.IsExistString(v, netList) {
-			usedIpList := etcdClient.EtcdGet(etcdRootDir+"/"+v, true).([]string)
-			if len(usedIpList) < 240 {
-				netVlanId := etcdClient.EtcdGet(etcdRootDir+"/"+v, false).([]utils.EtcdGetValue)[0].V
-				n.Master = n.Master + "." + netVlanId
-				n.NetInfo.AppNet = v
-				n.NetInfo.UseIpList = usedIpList
-				break
-			} else if i == len(usedIpList)-1 {
-				return nil, "", fmt.Errorf("%v 的Annotations里的app_net地址池不够了! \n")
-			} else {
-				log.Printf("%v 这个IP地址段中已经没有IP了! \n", v)
-				continue
-			}
-		} else {
-			return nil, "", fmt.Errorf("%v 的Annotations里的app_net写的有问题，找不到! \n", n.EnvArgs.K8sPodName)
-		}
-	}
-	etcdClient.EtcdDisconnect()
+	//var etcdRootDir = "/ipam"
+	//netList := etcdClient.EtcdGet(etcdRootDir, true).([]string)
+	//for i, v := range netArr {
+	//	if utils.IsExistString(v, netList) {
+	//		usedIpList := etcdClient.EtcdGet(etcdRootDir+"/"+v, true).([]string)
+	//		if len(usedIpList) < 240 {
+	//			netVlanId := etcdClient.EtcdGet(etcdRootDir+"/"+v, false).([]utils.EtcdGetValue)[0].V
+	//			n.Master = n.Master + "." + netVlanId
+	//			n.NetInfo.AppNet = v
+	//			n.NetInfo.UseIpList = usedIpList
+	//			break
+	//		} else if i == len(usedIpList)-1 {
+	//			return nil, "", fmt.Errorf("%v 的Annotations里的app_net地址池不够了! \n")
+	//		} else {
+	//			log.Printf("%v 这个IP地址段中已经没有IP了! \n", v)
+	//			continue
+	//		}
+	//	} else {
+	//		return nil, "", fmt.Errorf("%v 的Annotations里的app_net写的有问题，找不到! \n", n.EnvArgs.K8sPodName)
+	//	}
+	//}
+	//etcdClient.EtcdDisconnect()
 
 	// 配置MTU，在不设置的情况下就是0 没有什么卵用
 	masterMTU, err := getMTUByName(n.Master)
@@ -328,11 +335,11 @@ func cmdAdd(args *skel.CmdArgs) error {
 		//}
 	*/
 
-	resIp, resGw := ipam.ResIp(n.NetInfo)
+	resIp := n.NetInfo.IPAddress
+	resGw := n.NetInfo.GateWay
 	result.IPs[0].Address.IP = []byte(resIp)
 	result.IPs[0].Address.Mask = []byte("ffffff00")
 	result.IPs[0].Gateway = []byte(resGw)
-
 	return types.PrintResult(result, cniVersion)
 }
 
@@ -341,7 +348,31 @@ func cmdCheck(args *skel.CmdArgs) error {
 }
 
 func cmdDel(args *skel.CmdArgs) error {
-	return nil
+	n, _, err := loadConf(args.StdinData, args.Args)
+	if err != nil {
+		return err
+	}
+	log.Println("cmdDel中的n=", n)
+	podName := n.EnvArgs.K8sPodName
+	podNameSpace := n.EnvArgs.K8sPodNamespace
+	utils.EtcdCmdDel(podNameSpace, podName)
+
+	if args.Netns == "" {
+		return nil
+	}
+
+	// There is a netns so try to clean up. Delete can be called multiple times
+	// so don't return an error if the device is already removed.
+	err = ns.WithNetNSPath(args.Netns, func(_ ns.NetNS) error {
+		if err := ip.DelLinkByName(args.IfName); err != nil {
+			if err != ip.ErrLinkNotFound {
+				return err
+			}
+		}
+		return nil
+	})
+
+	return err
 }
 
 func main() {
