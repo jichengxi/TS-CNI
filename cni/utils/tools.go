@@ -48,10 +48,13 @@ func EtcdAddIp(etcdClient *EtcdClient, netArr []string) structs.NetInfo {
 	// 第四步 如果没超过240个，就在etcd中取当前网段的vlanID，并且拼接到master上
 	var etcdRootDir = "/ipam"
 	netAllList := etcdClient.EtcdGet(etcdRootDir, true).([]string)
+	log.Println("容器yaml配置文件中注解的网段=", netArr)
+	log.Println("IPAM Etcd中存储的所有的网段=", netAllList)
 	for i, v := range netArr {
 		if IsExistString(v, netAllList) {
 		UsedIpList:
 			usedIpList := etcdClient.EtcdGet(etcdRootDir+"/"+v, true).([]string)
+			log.Println("IPAM Etcd中现有所用的IP列表=", usedIpList)
 			if len(usedIpList) < 240 {
 				netVlanId := etcdClient.EtcdGet(etcdRootDir+"/"+v, false).([]EtcdGetValue)[0].V
 				//n.Master = n.Master + "." + netVlanId
@@ -61,6 +64,7 @@ func EtcdAddIp(etcdClient *EtcdClient, netArr []string) structs.NetInfo {
 				resNetInfo.AppNet = v
 				resNetInfo.UseIpList = usedIpList
 				ResIp(etcdClient, &resNetInfo)
+				log.Println("IPAM 分配完的IP信息=", resNetInfo)
 				if resNetInfo.IPAddress != "" && resNetInfo.GateWay != "" {
 					return resNetInfo
 				} else {

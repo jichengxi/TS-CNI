@@ -15,6 +15,7 @@ import (
 	"log"
 	"net"
 	"runtime"
+	"strings"
 	"ts-cni/cni/structs"
 	"ts-cni/cni/utils"
 )
@@ -41,7 +42,7 @@ type NetConf struct {
 //)
 
 func init() {
-	log.SetPrefix("TS-CNI: ")
+	log.SetPrefix("TC-CNI: ")
 	log.SetFlags(log.Ldate | log.Lmicroseconds | log.Lshortfile)
 	runtime.LockOSThread()
 }
@@ -93,8 +94,8 @@ func loadConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 	if err := json.Unmarshal(bytes, n); err != nil {
 		return nil, "", fmt.Errorf("failed to load netconf: %v", err)
 	}
-	log.Println("第一步的n:", *n)
-	log.Println("第一步的envArgs:", envArgs)
+	log.Println("CNI LoadConf的n:", *n)
+	log.Println("CNI LoadConf的envArgs:", envArgs)
 	// 加载命令行传进来的参数
 	// 命令行传进来的参数=
 	// IgnoreUnknown=1;
@@ -102,14 +103,42 @@ func loadConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 	// K8S_POD_NAME=nginx-test;
 	// K8S_POD_INFRA_CONTAINER_ID=c9955ddd4f37e4822f4ddb198e1c4069fa4598720897a07b68f4114267285c12
 	if envArgs != "" {
-		log.Println("envArgs转换前的值=", envArgs)
+		log.Println("CNI envArgs转换前的值=", envArgs)
+		//2021-07-30 13:31:17.590884 I | TC-CNI: 2021/07/30 13:31:17.590874 tc-cni.go:105:
+		//CNI envArgs转换前的值= IgnoreUnknown=1;
+		//K8S_POD_NAMESPACE=default;
+		//K8S_POD_NAME=nginx-test-5f6cc55c7f-jmrqf;
+		//K8S_POD_INFRA_CONTAINER_ID=106974fef45160ef276ce66499f9570cbe0b56a209ed4ead3857b5277bb2da5c
 		m := &EnvArgs{}
-		if err := json.Unmarshal([]byte(envArgs), m); err != nil {
-			return nil, "", fmt.Errorf("failed to load envArgs: %v", err)
+		/*
+			type EnvArgs struct {
+				types.CommonArgs
+				K8sPodNamespace        string `json:"K8S_POD_NAMESPACE"`
+				K8sPodName             string `json:"K8S_POD_NAME"`
+				K8sPodInfraContainerId string `json:"K8S_POD_INFRA_CONTAINER_ID"`
+			}
+
+			type CommonArgs struct {
+				IgnoreUnknown UnmarshallableBool `json:"ignoreunknown,omitempty"`
+			}
+		*/
+		tempMap := make(map[string]string)
+		tempArr := strings.Split(envArgs, ";")
+		for _, v := range tempArr {
+			tempKV := strings.Split(v, "=")
+			tempMap[tempKV[0]] = tempKV[1]
 		}
+		if tempMap["IgnoreUnknown"] == "1" {
+			m.IgnoreUnknown = true
+		} else {
+			m.IgnoreUnknown = false
+		}
+		m.K8sPodNamespace = tempMap["K8S_POD_NAMESPACE"]
+		m.K8sPodName = tempMap["K8S_POD_NAME"]
+		m.K8sPodInfraContainerId = tempMap["K8sPodInfraContainerId"]
 		n.EnvArgs = *m
-		log.Println("envArgs转换后的值=", *m)
-		log.Println("转换后n的值=", *n)
+		log.Println("CNI envArgs转换后的值=", *m)
+		log.Println("CNI 转换后n的值=", *n)
 	}
 
 	// 没有设置网卡就使用默认网卡
@@ -123,14 +152,19 @@ func loadConf(bytes []byte, envArgs string) (*NetConf, string, error) {
 	// 建立k8s连接
 	K8sClient := utils.NewK8s()
 	// 根据n.EnvArgs中当前创建pod的namespace和name，查出对应上层控制器中定义的app_net切片
+	log.Println("当前pod namespace =", n.EnvArgs.K8sPodNamespace)
+	log.Println("当前pod的名称 =", n.EnvArgs.K8sPodName)
 	netArr := K8sClient.GetPodNet(n.EnvArgs.K8sPodNamespace, n.EnvArgs.K8sPodName)
+	log.Println("CNI NetArr的值=", netArr)
 	ipInfo := utils.EtcdCmdAdd(netArr)
+	log.Println("CNI IpInfo=", ipInfo)
 	n.Master = n.Master + "." + ipInfo.VlanId
 	n.NetInfo.AppNet = ipInfo.AppNet
 	n.NetInfo.UseIpList = ipInfo.UseIpList
 	n.NetInfo.IPAddress = ipInfo.IPAddress
 	n.NetInfo.GateWay = ipInfo.GateWay
-	log.Println("IP分配信息：", n.Master, n.NetInfo)
+	log.Println("CNI IP分配信息=", n.Master, n.NetInfo)
+	log.Println("CNI IP分配完后n的信息=", n)
 
 	// 建立etcd连接
 	//etcdClient := utils.EtcdClient{}
@@ -183,13 +217,13 @@ func createMacvlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Inter
 	if err != nil {
 		return nil, err
 	}
-	log.Println("macvlan的mode", mode)
+	log.Println("CNI macvlan的mode=", mode)
 
 	m, err := netlink.LinkByName(conf.Master)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup master %q: %v", conf.Master, err)
 	}
-	log.Println("macvlan的m", m)
+	log.Println("CNI macvlan的m=", m)
 
 	// 子接口网卡名
 	// due to kernel bug we have to create with tmpName or it might
@@ -213,7 +247,8 @@ func createMacvlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Inter
 		}
 		linkAttrs.HardwareAddr = addr
 	}
-	log.Println("linkAttrs.HardwareAddr=", linkAttrs.HardwareAddr)
+	log.Println("CNI linkAttrs.HardwareAddr的值=", linkAttrs.HardwareAddr)
+	log.Println("CNI linkAttrs的值=")
 
 	// 整合macvlan所需要的参数
 	mv := &netlink.Macvlan{
@@ -250,30 +285,31 @@ func createMacvlan(conf *NetConf, ifName string, netns ns.NetNS) (*current.Inter
 		}
 		macvlan.Mac = contMacvlan.Attrs().HardwareAddr.String()
 		macvlan.Sandbox = netns.Path()
-		log.Println("macvlan的值=", *macvlan)
 
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-
+	log.Println("CNI macvlan的值=", *macvlan)
 	// {eth0 0e:69:d6:07:a9:33 /proc/25981/ns/net}
 	return macvlan, nil
 }
 
 func cmdAdd(args *skel.CmdArgs) error {
-	log.Println("args的值:", *args)
+	log.Println("CNI Args的值=", *args)
 	n, cniVersion, err := loadConf(args.StdinData, args.Args)
 	if err != nil {
 		return err
 	}
+	log.Println("CNI 加载完配置后n=", n)
 
 	// 网络命名空间
 	netns, err := ns.GetNS(args.Netns)
 	if err != nil {
 		return fmt.Errorf("failed to open netns %q: %v", netns, err)
 	}
+	log.Println("CNI 网络命名空间netns=", netns)
 	defer netns.Close()
 
 	// macvlanInterface参数： {eth0 82:e1:18:79:a4:5d /proc/10491/ns/net}
@@ -281,7 +317,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	if err != nil {
 		return err
 	}
-	log.Println("macvlanInterface参数：", *macvlanInterface)
+	log.Println("macvlanInterface参数=", *macvlanInterface)
 
 	// Delete link if err to avoid link leak in this ns
 	defer func() {
@@ -340,16 +376,20 @@ func cmdAdd(args *skel.CmdArgs) error {
 	result.IPs[0].Address.IP = []byte(resIp)
 	result.IPs[0].Address.Mask = []byte("ffffff00")
 	result.IPs[0].Gateway = []byte(resGw)
+	log.Println("CNI 最终result的值=", result)
 	return types.PrintResult(result, cniVersion)
 }
 
 func cmdCheck(args *skel.CmdArgs) error {
+	log.Println("cmdCheck 中的args=", *args)
 	return nil
 }
 
 func cmdDel(args *skel.CmdArgs) error {
+	log.Println("cmdDel 中args=", args)
 	n, _, err := loadConf(args.StdinData, args.Args)
 	if err != nil {
+		log.Println("cmdDel 中err=", err)
 		return err
 	}
 	log.Println("cmdDel中的n=", n)
